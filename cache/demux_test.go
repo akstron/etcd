@@ -21,6 +21,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
 
+	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
@@ -333,6 +334,106 @@ func TestSlowWatcherResync(t *testing.T) {
 				t.Fatalf("resync batch sizes mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestBroadcastProgress(t *testing.T) {
+	t.Run("sends progress to all active watchers", func(t *testing.T) {
+		d := newDemux(16, 10*time.Millisecond)
+		d.Init(1)
+
+		w1 := newWatcher(8, nil)
+		w2 := newWatcher(8, nil)
+		d.Register(w1, 0)
+		d.Register(w2, 0)
+
+		if err := d.Broadcast(respWithEventRevs(2, 3)); err != nil {
+			t.Fatalf("Broadcast: %v", err)
+		}
+		readBatches(t, w1, 1)
+		readBatches(t, w2, 1)
+
+		if err := d.Broadcast(progressNotifyResp(10)); err != nil {
+			t.Fatalf("Broadcast progress: %v", err)
+		}
+		drainProgress(t, w1)
+		drainProgress(t, w2)
+
+		d.BroadcastProgress()
+
+		resp1 := readOneResponse(t, w1)
+		require.True(t, resp1.IsProgressNotify(), "expected progress notify")
+		require.Equal(t, int64(10), resp1.Header.Revision)
+
+		resp2 := readOneResponse(t, w2)
+		require.True(t, resp2.IsProgressNotify(), "expected progress notify")
+		require.Equal(t, int64(10), resp2.Header.Revision)
+	})
+
+	t.Run("no-op when maxRev is zero", func(t *testing.T) {
+		d := newDemux(16, 10*time.Millisecond)
+		w := newWatcher(8, nil)
+		d.Register(w, 0)
+		d.BroadcastProgress()
+		select {
+		case <-w.respCh:
+			t.Fatal("expected no response when maxRev is 0")
+		default:
+		}
+	})
+
+	t.Run("multiple calls each deliver a response", func(t *testing.T) {
+		d := newDemux(16, 10*time.Millisecond)
+		d.Init(1)
+
+		w := newWatcher(8, nil)
+		d.Register(w, 0)
+
+		if err := d.Broadcast(progressNotifyResp(5)); err != nil {
+			t.Fatalf("Broadcast progress: %v", err)
+		}
+		drainProgress(t, w)
+
+		d.BroadcastProgress()
+		resp := readOneResponse(t, w)
+		require.True(t, resp.IsProgressNotify())
+		require.Equal(t, int64(5), resp.Header.Revision)
+
+		d.BroadcastProgress()
+		resp = readOneResponse(t, w)
+		require.True(t, resp.IsProgressNotify())
+		require.Equal(t, int64(5), resp.Header.Revision)
+	})
+}
+
+func progressNotifyResp(rev int64) clientv3.WatchResponse {
+	return clientv3.WatchResponse{
+		Header: etcdserverpb.ResponseHeader{
+			Revision: rev,
+		},
+	}
+}
+
+func readOneResponse(t *testing.T, w *watcher) clientv3.WatchResponse {
+	t.Helper()
+	select {
+	case resp := <-w.respCh:
+		return resp
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for response")
+		return clientv3.WatchResponse{}
+	}
+}
+
+func drainProgress(t *testing.T, w *watcher) {
+	t.Helper()
+	select {
+	case resp := <-w.respCh:
+		if !resp.IsProgressNotify() {
+			t.Fatalf("expected progress notify, got events: %v", resp.Events)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out draining progress")
 	}
 }
 
