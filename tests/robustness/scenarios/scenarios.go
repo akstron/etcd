@@ -309,6 +309,54 @@ func Regression(t *testing.T) []TestScenario {
 		),
 	})
 	scenarios = append(scenarios, TestScenario{
+		Name: "SlowWatchSync",
+		Profile: traffic.Profile{
+			KeyValue:   &traffic.KeyValueHigh,
+			Watch:      &traffic.WatchDefault,
+			Compaction: &traffic.CompactionDefault,
+		},
+		Failpoint: failpoint.SleepBeforeSyncWatcherSend,
+		Traffic:   traffic.Kubernetes,
+		Cluster: *e2e.NewConfig(
+			e2e.WithClusterSize(1),
+			e2e.WithGoFailEnabled(true),
+			options.WithSnapshotCount(100),
+		),
+	})
+	scenarios = append(scenarios, TestScenario{
+		Name: "SlowWatchVictimRecovery",
+		Profile: traffic.Profile{
+			KeyValue:   &traffic.KeyValueHigh,
+			Watch:      &traffic.WatchDefault,
+			Compaction: &traffic.CompactionDefault,
+		},
+		Failpoint: failpoint.SleepBeforeMoveVictimSend,
+		Traffic:   traffic.Kubernetes,
+		Cluster: *e2e.NewConfig(
+			e2e.WithClusterSize(1),
+			e2e.WithGoFailEnabled(true),
+			options.WithSnapshotCount(100),
+		),
+	})
+	scenarios = append(scenarios, TestScenario{
+		Name: "SlowWatchProgressNotify",
+		Watch: client.WatchConfig{
+			RequestProgress: true,
+		},
+		Profile: traffic.Profile{
+			KeyValue:   &traffic.KeyValueHigh,
+			Watch:      &traffic.WatchDefault,
+			Compaction: &traffic.CompactionDefault,
+		},
+		Failpoint: failpoint.SleepBeforeProgressNotify,
+		Traffic:   traffic.Kubernetes,
+		Cluster: *e2e.NewConfig(
+			e2e.WithClusterSize(1),
+			e2e.WithGoFailEnabled(true),
+			options.WithSnapshotCount(100),
+		),
+	})
+	scenarios = append(scenarios, TestScenario{
 		Name:      "Issue20221",
 		Failpoint: failpoint.BlackholeUntilSnapshot,
 		Watch: client.WatchConfig{

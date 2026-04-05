@@ -293,6 +293,7 @@ func (s *watchableStore) moveVictims() (moved int) {
 		for w, eb := range wb {
 			// watcher has observed the store up to, but not including, w.minRev
 			rev := w.minRev - 1
+			// gofail: var beforeMoveVictimSend struct{}
 			if !w.send(WatchResponse{WatchID: w.id, Events: eb.evs, Revision: rev}) {
 				if newVictim == nil {
 					newVictim = make(watcherBatch)
@@ -384,6 +385,7 @@ func (s *watchableStore) syncWatchers() int {
 			w.minRev = eb.moreRev
 		}
 
+		// gofail: var beforeSyncWatcherSend struct{}
 		if w.send(WatchResponse{WatchID: w.id, Events: eb.evs, Revision: curRev}) {
 			pendingEventsGauge.Add(float64(len(eb.evs)))
 		} else {
@@ -532,6 +534,7 @@ func (s *watchableStore) progressIfSync(watchers map[WatchID]*watcher, responseW
 	// notification will be broadcasted client-side if required
 	// (see dispatchEvent in client/v3/watch.go)
 	for _, w := range watchers {
+		// gofail: var beforeProgressNotify struct{}
 		w.send(WatchResponse{WatchID: responseWatchID, Revision: rev})
 		return true
 	}
